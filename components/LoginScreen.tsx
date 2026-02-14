@@ -1,6 +1,7 @@
+
 import React, { useState, useEffect } from 'react';
-import { LogIn, UserPlus, User, MapPin, Lock, AlertCircle, ShieldAlert, Mail, ArrowLeft, CheckCircle, Send, Users, Eye, EyeOff, KeyRound } from 'lucide-react';
-import { UserProfile } from '../types';
+import { LogIn, UserPlus, User, MapPin, Lock, AlertCircle, ShieldAlert, Mail, ArrowLeft, CheckCircle, Send, Users, Eye, EyeOff, KeyRound, Download, Database, CheckCircle2 } from 'lucide-react';
+import { UserProfile, AppBackupData } from '../types';
 import { SECTORS } from '../constants';
 
 interface LoginScreenProps {
@@ -9,11 +10,12 @@ interface LoginScreenProps {
 
 const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
   const [isRegister, setIsRegister] = useState(false);
-  // View State: 'main' (login/register) or 'forgot-password'
-  const [viewMode, setViewMode] = useState<'main' | 'forgot-password'>('main');
+  // View State: 'main' | 'forgot-password' | 'import-data'
+  const [viewMode, setViewMode] = useState<'main' | 'forgot-password' | 'import-data'>('main');
   
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
   
   // Form States
   const [name, setName] = useState('');
@@ -32,14 +34,19 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
   const [resetName, setResetName] = useState('');
   const [resetEmail, setResetEmail] = useState('');
   const [resetSuccess, setResetSuccess] = useState(false);
-  const [tempResetPass, setTempResetPass] = useState(''); // State to show simulated temp password
+  const [tempResetPass, setTempResetPass] = useState('');
+
+  // Import Data States
+  const [importString, setImportString] = useState('');
 
   // Seed Default Admin & Clear error when switching modes
   useEffect(() => {
     setError('');
+    setSuccessMsg('');
     setPassword('');
     setResetSuccess(false);
     setTempResetPass('');
+    setImportString('');
     
     // SEEDING: Cek apakah database kosong/tidak ada admin, jika ya buat admin default
     const dbKey = 'gkps_users_db';
@@ -98,7 +105,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
     } else {
         setAvailableFamilies([]);
     }
-  }, [isRegister, role, sector]);
+  }, [isRegister, role, sector, viewMode]); // Added viewMode to refresh list after import
 
   // Handle selection from dropdown
   const handleFamilySelection = (val: string) => {
@@ -140,19 +147,14 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
         }
 
         // 2. Buat user baru
-        // KEAMANAN: Role admin tidak bisa dipilih saat register public
         const selectedRole = role === 'admin' ? 'jemaat' : role; 
 
         const newUser: UserProfile = {
             name: name.trim(),
             sector: sector,
             role: selectedRole,
-            password: password, // Dalam real app, ini harus di-hash
+            password: password, 
             servedFamilies: selectedRole === 'sintua' ? [] : undefined,
-            // Jika user mendaftar sendiri, tidak perlu dipaksa ganti password (kecuali kebijakan lain)
-            // Tapi jika request "Paksa jemaat yang baru pertama membuat password", kita bisa set true
-            // Namun logisnya jika dia yang buat sendiri, dia tahu passwordnya.
-            // Kita set false untuk self-registration, true untuk admin-created.
             mustChangePassword: false 
         };
 
@@ -209,28 +211,21 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
 
     setLoading(true);
 
-    // Simulasi Reset Password dengan Generate Token Lokal
     setTimeout(() => {
         const dbKey = 'gkps_users_db';
         const existingUsersStr = localStorage.getItem(dbKey);
         const existingUsers: UserProfile[] = existingUsersStr ? JSON.parse(existingUsersStr) : [];
         
-        // Cek apakah user ada (berdasarkan Nama)
         const userIndex = existingUsers.findIndex(u => u.name.toLowerCase() === resetName.trim().toLowerCase());
 
         if (userIndex !== -1) {
-            // Generate Password Sementara
             const tempPass = `gkps${Math.floor(1000 + Math.random() * 9000)}`;
-            
-            // Update User di DB
             existingUsers[userIndex] = {
                 ...existingUsers[userIndex],
                 password: tempPass,
-                mustChangePassword: true // Paksa ganti password setelah login
+                mustChangePassword: true 
             };
-            
             localStorage.setItem(dbKey, JSON.stringify(existingUsers));
-            
             setTempResetPass(tempPass);
             setResetSuccess(true);
         } else {
@@ -238,6 +233,38 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
         }
         setLoading(false);
     }, 1500);
+  };
+
+  const handleImportData = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setSuccessMsg('');
+
+    if(!importString.trim()) {
+        setError("Tempel kode data terlebih dahulu.");
+        return;
+    }
+
+    try {
+        const data: AppBackupData = JSON.parse(importString);
+        
+        // Basic validation
+        if (!Array.isArray(data.users)) throw new Error("Format data salah");
+
+        localStorage.setItem('gkps_users_db', JSON.stringify(data.users));
+        localStorage.setItem('gkps_reports_db', JSON.stringify(data.reports));
+        localStorage.setItem('gkps_chats_db', JSON.stringify(data.chats));
+
+        setSuccessMsg("Data berhasil dipulihkan! Anda sekarang bisa login atau mendaftar dengan data terbaru.");
+        
+        // Delay redirect back to main
+        setTimeout(() => {
+             setViewMode('main');
+        }, 2000);
+
+    } catch (e) {
+        setError("Kode data tidak valid. Pastikan Anda menyalin seluruh teks dari perangkat Laptop.");
+    }
   };
 
   return (
@@ -254,12 +281,13 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
             GKPS
           </div>
           <h1 className="text-2xl font-bold text-gray-800">
-            {viewMode === 'forgot-password' ? 'Reset Password' : (isRegister ? 'Daftar Akun' : 'Selamat Datang')}
+            {viewMode === 'forgot-password' ? 'Reset Password' : (viewMode === 'import-data' ? 'Pulihkan Data' : (isRegister ? 'Daftar Akun' : 'Selamat Datang'))}
           </h1>
           <p className="text-gray-500 text-sm mt-1">
             {viewMode === 'forgot-password' 
                 ? 'Pulihkan akses akun Anda' 
-                : (isRegister ? 'Buat akun untuk akses aplikasi' : 'Masuk dengan akun terdaftar')
+                : (viewMode === 'import-data' ? 'Sinkronisasi data dari Laptop' 
+                : (isRegister ? 'Buat akun untuk akses aplikasi' : 'Masuk dengan akun terdaftar'))
             }
           </p>
         </div>
@@ -283,7 +311,13 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                     </button>
                 </div>
 
-                {/* Error Alert */}
+                {successMsg && (
+                    <div className="mb-4 p-3 bg-green-50 border border-green-100 rounded-xl flex items-start gap-2 text-green-600 text-xs font-medium animate-in fade-in slide-in-from-top-2">
+                        <CheckCircle2 size={16} className="shrink-0 mt-0.5" />
+                        <span>{successMsg}</span>
+                    </div>
+                )}
+
                 {error && (
                     <div className="mb-4 p-3 bg-red-50 border border-red-100 rounded-xl flex items-start gap-2 text-red-600 text-xs font-medium animate-in fade-in slide-in-from-top-2">
                         <AlertCircle size={16} className="shrink-0 mt-0.5" />
@@ -315,7 +349,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                     </div>
                 )}
 
-                {/* Sektor Dropdown - Moved Up for Logic */}
+                {/* Sektor Dropdown */}
                 {(!isRegister || role !== 'admin') && (
                     <div>
                     <label className="block text-xs font-semibold text-gray-600 mb-2 ml-1 flex items-center gap-1">
@@ -351,12 +385,12 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                                     <option key={idx} value={fam}>{fam}</option>
                                 ))
                             ) : (
-                                <option value="" disabled>Tidak ada data keluarga tersedia di {sector}</option>
+                                <option value="" disabled>Tidak ada data (Coba 'Pulihkan Data' jika baru ditambahkan)</option>
                             )}
                             <option value="manual">+ Ketik Nama Baru (Manual)</option>
                         </select>
                         <p className="text-[10px] text-blue-600 mt-1.5 leading-tight">
-                            Pilih nama keluarga yang sudah didaftarkan Sintua agar otomatis terhubung. Pilih "Manual" jika nama belum ada.
+                            Pilih nama keluarga yang sudah didaftarkan Sintua agar otomatis terhubung. 
                         </p>
                     </div>
                 )}
@@ -403,9 +437,18 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                     </div>
                 </div>
 
-                {/* FORGOT PASSWORD LINK (Only on Login) */}
-                {!isRegister && (
-                    <div className="flex justify-end">
+                <div className="flex justify-between items-center mt-2">
+                    {/* BUTTON IMPORT DATA */}
+                    <button 
+                        type="button"
+                        onClick={() => setViewMode('import-data')}
+                        className="text-[11px] font-bold text-gray-400 hover:text-gkps-primary flex items-center gap-1 transition-colors"
+                    >
+                        <Database size={12} /> Pulihkan Data (Sync)
+                    </button>
+
+                    {/* FORGOT PASSWORD LINK */}
+                    {!isRegister && (
                         <button 
                             type="button"
                             onClick={() => setViewMode('forgot-password')}
@@ -413,8 +456,8 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                         >
                             Lupa Password?
                         </button>
-                    </div>
-                )}
+                    )}
+                </div>
                 
                 <button 
                     type="submit" 
@@ -432,6 +475,67 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                 </button>
                 </form>
             </>
+        )}
+
+        {/* --- IMPORT DATA VIEW --- */}
+        {viewMode === 'import-data' && (
+            <div className="animate-in fade-in slide-in-from-right-4 duration-300">
+                {error && (
+                    <div className="mb-4 p-3 bg-red-50 border border-red-100 rounded-xl flex items-start gap-2 text-red-600 text-xs font-medium">
+                        <AlertCircle size={16} className="shrink-0 mt-0.5" />
+                        <span>{error}</span>
+                    </div>
+                )}
+                
+                {successMsg && (
+                    <div className="mb-4 p-3 bg-green-50 border border-green-100 rounded-xl flex items-start gap-2 text-green-600 text-xs font-medium">
+                        <CheckCircle2 size={16} className="shrink-0 mt-0.5" />
+                        <span>{successMsg}</span>
+                    </div>
+                )}
+
+                <div className="space-y-4">
+                    <div className="bg-blue-50 p-3 rounded-lg border border-blue-100">
+                        <p className="text-xs text-blue-800 leading-relaxed">
+                            Jika Anda baru saja ditambahkan oleh Sintua di Laptop, <strong>Salin</strong> data dari Laptop (Menu Akun) dan <strong>Tempel</strong> di sini agar nama Anda muncul saat mendaftar.
+                        </p>
+                    </div>
+
+                    <div>
+                        <label className="block text-xs font-semibold text-gray-600 mb-2 ml-1 flex items-center gap-1">
+                            KODE DATA DARI LAPTOP
+                        </label>
+                        <textarea 
+                            value={importString}
+                            onChange={(e) => setImportString(e.target.value)}
+                            placeholder='Tempel kode panjang di sini...'
+                            className="w-full h-32 bg-gray-50 border border-gray-200 rounded-xl p-3 text-xs focus:ring-2 focus:ring-gkps-primary/20 focus:border-gkps-primary outline-none transition-all resize-none"
+                        />
+                    </div>
+
+                    <button 
+                        type="button" 
+                        onClick={handleImportData}
+                        className="w-full bg-gkps-primary hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-blue-200 active:scale-[0.98] transition-all flex items-center justify-center gap-2 mt-2"
+                    >
+                        <Download size={18} />
+                        <span>Import / Pulihkan Data</span>
+                    </button>
+
+                    <button 
+                        type="button"
+                        onClick={() => {
+                            setViewMode('main');
+                            setError('');
+                            setSuccessMsg('');
+                        }}
+                        className="w-full mt-4 flex items-center justify-center gap-2 text-sm text-gray-500 hover:text-gray-800 font-medium py-2 transition-colors"
+                    >
+                        <ArrowLeft size={16} />
+                        Kembali
+                    </button>
+                </div>
+            </div>
         )}
 
         {/* --- FORGOT PASSWORD VIEW --- */}
