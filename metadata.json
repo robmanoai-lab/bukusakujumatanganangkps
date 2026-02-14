@@ -1,0 +1,8 @@
+{
+  "name": "Buku Saku GKPS Parjumatanganan",
+  "description": "A digital pocket book and management app for GKPS Parjumatanganan fellowship groups, featuring liturgy guides, reporting tools, and community chat.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
