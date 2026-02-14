@@ -1,36 +1,72 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Send, Phone, Video, ArrowLeft, MoreVertical, Paperclip, Smile, Search, AlertTriangle, Check, CheckCheck, Mic, Camera, X } from 'lucide-react';
-import { MOCK_CONTACTS, MOCK_MESSAGES } from '../constants';
-import { ChatContact, ChatMessage } from '../types';
 
-// Mock Service (Simulasi Backend)
-const MockMessageService = {
-  subscribeToStatusUpdates: (messageId: string, callback: (status: 'delivered' | 'read') => void) => {
-    const deliveredDelay = 800 + Math.random() * 1000;
-    const readDelay = deliveredDelay + 1500 + Math.random() * 2000;
-    const t1 = setTimeout(() => callback('delivered'), deliveredDelay);
-    const t2 = setTimeout(() => callback('read'), readDelay);
-    return () => { clearTimeout(t1); clearTimeout(t2); };
-  }
-};
+import React, { useState, useRef, useEffect } from 'react';
+import { Send, Phone, Video, ArrowLeft, MoreVertical, Paperclip, Smile, Search, Check, CheckCheck, Mic, Camera, X } from 'lucide-react';
+import { MOCK_CONTACTS } from '../constants';
+import { ChatContact, ChatMessage } from '../types';
 
 const ChatInterface: React.FC = () => {
   const [activeChat, setActiveChat] = useState<ChatContact | null>(null);
   const [newMessage, setNewMessage] = useState('');
-  const [messages, setMessages] = useState<ChatMessage[]>(MOCK_MESSAGES);
+  
+  // State untuk menyimpan semua pesan (Database Lokal)
+  const [allMessages, setAllMessages] = useState<Record<string, ChatMessage[]>>({});
+  
+  // State untuk kontak yang ditampilkan
+  const [contacts, setContacts] = useState<ChatContact[]>(MOCK_CONTACTS);
+  
   const [searchQuery, setSearchQuery] = useState('');
   const [showExitConfirm, setShowExitConfirm] = useState(false);
-  
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const statusSubscriptions = useRef<Record<string, () => void>>({});
 
+  // Load chat dari Local Storage saat awal
   useEffect(() => {
-    return () => { 
-      Object.keys(statusSubscriptions.current).forEach(key => {
-        statusSubscriptions.current[key]();
-      });
-    };
+    try {
+        const savedChats = localStorage.getItem('gkps_chats_db');
+        if (savedChats) {
+            setAllMessages(JSON.parse(savedChats));
+        } else {
+            // Seed data awal jika kosong
+            const initialData: Record<string, ChatMessage[]> = {};
+            MOCK_CONTACTS.forEach(c => {
+                // Dummy message jika belum ada
+                initialData[c.id] = [
+                    {
+                        id: 'm-init-' + c.id,
+                        senderId: 'other',
+                        text: c.lastMessage, // Mengambil dari constant mock awal
+                        timestamp: c.lastMessageTime,
+                        isMe: false,
+                        status: 'read'
+                    }
+                ];
+            });
+            setAllMessages(initialData);
+            localStorage.setItem('gkps_chats_db', JSON.stringify(initialData));
+        }
+    } catch (e) {
+        console.error("Failed to load chats", e);
+    }
   }, []);
+
+  // Update List Contact berdasarkan pesan terakhir real-time
+  useEffect(() => {
+    const updatedContacts = MOCK_CONTACTS.map(contact => {
+        const msgs = allMessages[contact.id] || [];
+        const lastMsg = msgs[msgs.length - 1];
+        if (lastMsg) {
+            return {
+                ...contact,
+                lastMessage: lastMsg.text,
+                lastMessageTime: lastMsg.timestamp,
+                // Simple logic: jika pesan terakhir bukan dari 'me', anggap unread (dummy)
+                unreadCount: !lastMsg.isMe ? 1 : 0 
+            };
+        }
+        return contact;
+    });
+    // Sort contact by time (newest top) - simplified for now
+    setContacts(updatedContacts);
+  }, [allMessages]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
@@ -38,36 +74,59 @@ const ChatInterface: React.FC = () => {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, activeChat]);
+  }, [allMessages, activeChat]);
 
   const handleSendMessage = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!newMessage.trim()) return;
+    if (!newMessage.trim() || !activeChat) return;
 
     const msgId = Date.now().toString();
+    const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    
     const optimisticMsg: ChatMessage = {
       id: msgId,
       senderId: 'me',
       text: newMessage,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      timestamp: timestamp,
       isMe: true,
       status: 'sent'
     };
 
-    setMessages(prev => [...prev, optimisticMsg]);
+    // Update Local Database
+    const updatedAllMessages = { ...allMessages };
+    if (!updatedAllMessages[activeChat.id]) {
+        updatedAllMessages[activeChat.id] = [];
+    }
+    updatedAllMessages[activeChat.id] = [...updatedAllMessages[activeChat.id], optimisticMsg];
+    
+    setAllMessages(updatedAllMessages);
+    localStorage.setItem('gkps_chats_db', JSON.stringify(updatedAllMessages));
     setNewMessage('');
 
-    const unsubscribe = MockMessageService.subscribeToStatusUpdates(msgId, (newStatus) => {
-      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, status: newStatus } : m));
-    });
-    statusSubscriptions.current[msgId] = unsubscribe;
-  };
+    // Simulasi Balasan Otomatis (Bot)
+    setTimeout(() => {
+        // Update status to read
+        const msgsAfterSent = { ...updatedAllMessages };
+        const myMsgIndex = msgsAfterSent[activeChat.id].findIndex(m => m.id === msgId);
+        if(myMsgIndex !== -1) {
+             msgsAfterSent[activeChat.id][myMsgIndex].status = 'read';
+        }
+        
+        // Bot Reply
+        const replyMsg: ChatMessage = {
+            id: 'reply-' + Date.now(),
+            senderId: activeChat.id,
+            text: "Terima kasih, pesan Anda sudah kami terima (Auto-reply).",
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            isMe: false,
+            status: 'read'
+        };
+        msgsAfterSent[activeChat.id].push(replyMsg);
+        
+        setAllMessages(msgsAfterSent);
+        localStorage.setItem('gkps_chats_db', JSON.stringify(msgsAfterSent));
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSendMessage();
-    }
+    }, 2000);
   };
 
   const handleBack = () => {
@@ -75,10 +134,12 @@ const ChatInterface: React.FC = () => {
   };
 
   // Logic Filtering Kontak berdasarkan Search Query
-  const filteredContacts = MOCK_CONTACTS.filter(contact => 
+  const filteredContacts = contacts.filter(contact => 
     contact.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     contact.lastMessage.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  const currentMessages = activeChat ? (allMessages[activeChat.id] || []) : [];
 
   // --- LIST VIEW (WhatsApp Style Home) ---
   if (!activeChat) {
@@ -130,7 +191,6 @@ const ChatInterface: React.FC = () => {
                 <div className="flex-1 min-w-0 border-b border-gray-100 pb-3">
                     <div className="flex justify-between items-baseline mb-0.5">
                     <h3 className="font-semibold text-gray-900 truncate text-base">
-                        {/* Highlight matching text logic could go here, keeping simple for now */}
                         {contact.name}
                     </h3>
                     <span className={`text-[11px] ${contact.unreadCount > 0 ? 'text-green-500 font-medium' : 'text-gray-400'}`}>
@@ -139,8 +199,10 @@ const ChatInterface: React.FC = () => {
                     </div>
                     <div className="flex justify-between items-center">
                         <p className="text-sm text-gray-500 truncate pr-2 flex items-center gap-1">
-                            {/* Simulasi double tick di list view jika last message dari 'me' */}
-                            {!contact.unreadCount && <CheckCheck size={14} className="text-blue-500" />}
+                            {/* Double tick logic */}
+                            {allMessages[contact.id]?.slice(-1)[0]?.isMe && (
+                                <CheckCheck size={14} className={allMessages[contact.id]?.slice(-1)[0]?.status === 'read' ? "text-blue-500" : "text-gray-400"} />
+                            )}
                             {contact.lastMessage}
                         </p>
                         {contact.unreadCount > 0 && (
@@ -206,7 +268,7 @@ const ChatInterface: React.FC = () => {
 
       {/* Chat Area - WhatsApp Pattern Background */}
       <div className="flex-1 overflow-y-auto px-4 py-2 space-y-2 opacity-100 bg-[url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')] bg-repeat">
-        {messages.map((msg) => (
+        {currentMessages.map((msg) => (
           <div key={msg.id} className={`flex ${msg.isMe ? 'justify-end' : 'justify-start'} mb-1`}>
             <div 
               className={`max-w-[85%] px-3 py-1.5 rounded-lg shadow-[0_1px_0.5px_rgba(0,0,0,0.13)] relative text-[14.2px] leading-snug ${

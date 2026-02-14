@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { User, MapPin, Shield, Users, Plus, Trash2, Save, AlertCircle, CheckCircle2, Lock, Eye, EyeOff, KeyRound, ChevronRight, ChevronDown } from 'lucide-react';
-import { UserProfile } from '../types';
+import { User, Shield, Users, Plus, Trash2, Save, AlertCircle, CheckCircle2, KeyRound, ChevronRight, ChevronDown, Download, Upload, Copy, RefreshCw, Eye, EyeOff } from 'lucide-react';
+import { UserProfile, AppBackupData } from '../types';
 
 interface ProfileProps {
   user: UserProfile;
@@ -28,6 +28,11 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser }) => {
       new: false,
       confirm: false
   });
+
+  // Data Sync Management
+  const [showSync, setShowSync] = useState(false);
+  const [importDataString, setImportDataString] = useState('');
+  const [syncStatus, setSyncStatus] = useState<{type: 'success'|'error', msg: string} | null>(null);
 
   // Load all users to check registration status
   useEffect(() => {
@@ -109,6 +114,60 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser }) => {
       setTimeout(() => setPassSuccess(''), 3000);
   };
 
+  // --- Sync (Export/Import) Functions ---
+  const handleExportData = () => {
+    try {
+        const backupData: AppBackupData = {
+            users: JSON.parse(localStorage.getItem('gkps_users_db') || '[]'),
+            reports: JSON.parse(localStorage.getItem('gkps_reports_db') || '[]'),
+            chats: JSON.parse(localStorage.getItem('gkps_chats_db') || '{}'),
+            timestamp: Date.now()
+        };
+        
+        const dataString = JSON.stringify(backupData);
+        navigator.clipboard.writeText(dataString).then(() => {
+            setSyncStatus({ type: 'success', msg: 'Data berhasil disalin ke Clipboard! Kirim kode ini ke HP Anda.' });
+        }).catch(() => {
+             setSyncStatus({ type: 'success', msg: 'Gagal auto-copy. Silakan salin teks manual jika muncul.' });
+        });
+    } catch (e) {
+        setSyncStatus({ type: 'error', msg: 'Gagal mengambil data.' });
+    }
+  };
+
+  const handleImportData = () => {
+    if (!importDataString.trim()) {
+        setSyncStatus({ type: 'error', msg: 'Tempel kode data terlebih dahulu.' });
+        return;
+    }
+
+    try {
+        const data: AppBackupData = JSON.parse(importDataString);
+        
+        // Basic validation
+        if (!Array.isArray(data.users)) throw new Error("Format data salah");
+
+        if (window.confirm('PERINGATAN: Import akan menimpa data yang ada di perangkat ini. Lanjutkan?')) {
+            localStorage.setItem('gkps_users_db', JSON.stringify(data.users));
+            localStorage.setItem('gkps_reports_db', JSON.stringify(data.reports));
+            localStorage.setItem('gkps_chats_db', JSON.stringify(data.chats));
+            
+            // Perbarui user session jika user yang login ikut terupdate
+            const updatedCurrentUser = data.users.find(u => u.name === user.name);
+            if (updatedCurrentUser) {
+                localStorage.setItem('gkps_user', JSON.stringify(updatedCurrentUser));
+            }
+
+            setSyncStatus({ type: 'success', msg: 'Data berhasil di-import! Halaman akan dimuat ulang...' });
+            setTimeout(() => {
+                window.location.reload();
+            }, 2000);
+        }
+    } catch (e) {
+        setSyncStatus({ type: 'error', msg: 'Format data tidak valid.' });
+    }
+  };
+
   return (
     <div className="pb-24 pt-20 px-4 max-w-md mx-auto animate-in fade-in duration-300">
       
@@ -140,7 +199,7 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser }) => {
 
           <div className="p-5">
             <p className="text-xs text-gray-500 mb-4 leading-relaxed">
-              Tambahkan daftar keluarga yang menjadi tanggung jawab pelayanan Jumatanganan Anda. Tanda centang hijau menandakan keluarga tersebut sudah memiliki akun.
+              Tambahkan daftar keluarga yang menjadi tanggung jawab pelayanan Jumatanganan Anda.
             </p>
 
             {/* Input Tambah */}
@@ -199,6 +258,70 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser }) => {
           </div>
         </div>
       )}
+
+      {/* Bagian Sinkronisasi Data Manual */}
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden mb-6">
+          <div 
+            onClick={() => setShowSync(!showSync)}
+            className="bg-gray-50 px-5 py-3 border-b border-gray-100 flex justify-between items-center cursor-pointer hover:bg-gray-100 transition-colors"
+          >
+            <h3 className="font-bold text-gray-800 flex items-center gap-2">
+              <RefreshCw size={18} className="text-blue-500" />
+              Sinkronisasi Data
+            </h3>
+             {showSync ? <ChevronDown size={20} className="text-gray-400" /> : <ChevronRight size={20} className="text-gray-400" />}
+          </div>
+
+          {showSync && (
+              <div className="p-5 animate-in slide-in-from-top-2">
+                  <p className="text-xs text-gray-500 mb-4 leading-relaxed bg-blue-50 p-3 rounded-lg border border-blue-100">
+                      Gunakan fitur ini untuk memindahkan data dari Laptop ke HP (atau sebaliknya).
+                      <br/><strong>Caranya:</strong> Klik "Salin Data" di Laptop, kirim kodenya ke HP (via WA), lalu "Tempel Data" di HP.
+                  </p>
+                  
+                  {syncStatus && (
+                      <div className={`mb-4 p-3 rounded-xl flex items-start gap-2 text-xs font-medium ${syncStatus.type === 'success' ? 'bg-green-50 text-green-600 border border-green-100' : 'bg-red-50 text-red-600 border border-red-100'}`}>
+                          {syncStatus.type === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+                          <span>{syncStatus.msg}</span>
+                      </div>
+                  )}
+
+                  <div className="space-y-4">
+                      {/* Export */}
+                      <div className="border border-gray-200 rounded-xl p-4">
+                          <h4 className="font-bold text-gray-700 text-sm mb-2 flex items-center gap-2">
+                              <Upload size={16} /> Sumber Data (Laptop)
+                          </h4>
+                          <button 
+                            onClick={handleExportData}
+                            className="w-full flex items-center justify-center gap-2 bg-gray-800 text-white py-2.5 rounded-lg text-sm font-medium active:scale-95 transition-all"
+                          >
+                              <Copy size={16} /> Salin Semua Data
+                          </button>
+                      </div>
+
+                      {/* Import */}
+                      <div className="border border-gray-200 rounded-xl p-4">
+                          <h4 className="font-bold text-gray-700 text-sm mb-2 flex items-center gap-2">
+                              <Download size={16} /> Tujuan Data (HP)
+                          </h4>
+                          <textarea
+                            value={importDataString}
+                            onChange={(e) => setImportDataString(e.target.value)}
+                            placeholder="Tempel kode data di sini..."
+                            className="w-full bg-gray-50 border border-gray-200 rounded-lg p-2 text-xs h-20 mb-2 focus:ring-2 focus:ring-blue-100 outline-none"
+                          />
+                          <button 
+                            onClick={handleImportData}
+                            className="w-full flex items-center justify-center gap-2 bg-gkps-primary text-white py-2.5 rounded-lg text-sm font-medium active:scale-95 transition-all"
+                          >
+                              <Download size={16} /> Import & Update
+                          </button>
+                      </div>
+                  </div>
+              </div>
+          )}
+      </div>
 
       {/* Bagian Keamanan (Ganti Password) */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
@@ -277,7 +400,7 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser }) => {
 
       {/* Info Tambahan */}
       <div className="mt-6 text-center">
-        <p className="text-xs text-gray-400">Versi Aplikasi 1.0.3</p>
+        <p className="text-xs text-gray-400">Versi Aplikasi 1.0.4 (Offline Sync)</p>
       </div>
     </div>
   );

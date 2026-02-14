@@ -46,6 +46,7 @@ export interface Notification {
 }
 
 export interface ReportData {
+  id?: string;
   sintuaName: string;
   hostFamily: string;
   date: string;
@@ -59,4 +60,13 @@ export interface ReportData {
   offering: string;
   topic: string;
   notes: string;
+  status?: string;
+}
+
+// Interface untuk Backup Data Lengkap
+export interface AppBackupData {
+  users: UserProfile[];
+  reports: ReportData[];
+  chats: Record<string, ChatMessage[]>; // Key: contactId, Value: Messages
+  timestamp: number;
 }
